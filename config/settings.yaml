@@ -1,0 +1,5 @@
+interval_seconds: 60
+price_thresholds_eur: [1000, 5000, 10000, 13000, 15000, 18500]
+notify_on_percent_moves:
+  enabled: true
+  percent: 5
