@@ -1,45 +1,53 @@
-import os, time, requests, yaml
+import os, requests, yaml
 from dotenv import load_dotenv
 from typing import Optional
 from telegram import Bot
 
 load_dotenv()
-TOKEN=os.getenv("TELEGRAM_TOKEN"); CHAT_ID=os.getenv("TELEGRAM_CHAT_ID")
-bot: Optional[Bot]=Bot(TOKEN) if TOKEN else None
-CFG_PATH=os.path.join(os.path.dirname(__file__),"..","config","settings.yaml")
 
-def get_cfg():
-    with open(CFG_PATH,"r",encoding="utf-8") as f: return yaml.safe_load(f)
+TOKEN = os.getenv("TELEGRAM_TOKEN")
+CHAT_ID = os.getenv("TELEGRAM_CHAT_ID")
+bot: Optional[Bot] = Bot(TOKEN) if TOKEN else None
 
-def get_tao_price_eur()->float:
-    r=requests.get("https://api.coingecko.com/api/v3/simple/price",
-                   params={"ids":"bittensor","vs_currencies":"eur"},timeout=20)
-    r.raise_for_status(); return float(r.json()["bittensor"]["eur"])
+CFG_PATH = os.path.join(os.path.dirname(__file__), "..", "config", "settings.yaml")
 
-def notify(msg:str):
+def get_cfg() -> dict:
+    try:
+        with open(CFG_PATH, "r", encoding="utf-8") as f:
+            return yaml.safe_load(f) or {}
+    except FileNotFoundError:
+        return {}
+
+def get_tao_price_eur() -> float:
+    r = requests.get(
+        "https://api.coingecko.com/api/v3/simple/price",
+        params={"ids": "bittensor", "vs_currencies": "eur"},
+        timeout=20,
+    )
+    r.raise_for_status()
+    return float(r.json()["bittensor"]["eur"])
+
+def notify(msg: str) -> None:
     print(msg)
     if bot and CHAT_ID:
-        try: bot.send_message(chat_id=CHAT_ID,text=msg)
-        except Exception as e: print("Telegram error:",e)
+        try:
+            bot.send_message(chat_id=int(CHAT_ID), text=msg)
+        except Exception as e:
+            print(f"send_message error: {e}")
 
-def main():
-    cfg=get_cfg(); th=sorted(set(cfg.get("price_thresholds_eur",[])))
-    last_price=None; last_bucket=None; interval=int(cfg.get("interval_seconds",60))
-    pcfg=cfg.get("notify_on_percent_moves",{"enabled":True,"percent":5})
-    pct_on=bool(pcfg.get("enabled",True)); pct=float(pcfg.get("percent",5))
-    while True:
-       pop try:
-            p=get_tao_price_eur(); b=None
-            for t in th:
-                if p>=t: b=t
-            if b and b!=last_bucket:
-                notify(f"⛳️ Eşik: €{b:,} → €{p:,.2f}".replace(",","."))
-                last_bucket=b
-            if pct_on and last_price is not None:
-                ch=(p-last_price)/last_price*100
-                if abs(ch)>=pct: notify(("🚀" if ch>0 else "🔻")+f" {ch:.2f}% → €{p:,.2f}".replace(",","."))
-            last_price=p
-        except Exception as e: print("Hata:",e)
-        time.sleep(interval)
+if __name__ == "__main__":
+    price = get_tao_price_eur()
+    cfg = get_cfg()
+    min_eur = cfg.get("min_eur")
+    max_eur = cfg.get("max_eur")
 
-if __name__=="__main__": main()
+    triggered = False
+    if isinstance(min_eur, (int, float)) and price <= float(min_eur):
+        notify(f"⚠️ TAO {price:.2f}€ (<= min {min_eur})")
+        triggered = True
+    if isinstance(max_eur, (int, float)) and price >= float(max_eur):
+        notify(f"⚠️ TAO {price:.2f}€ (>= max {max_eur})")
+        triggered = True
+
+    if not triggered:
+        notify(f"TAO price: {price:.2f}€")
